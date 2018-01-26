@@ -91,6 +91,7 @@ public class BuiltInQualityProfilesNotificationTest {
       .setServerProperty("sonar.notifications.delay", "1")
       .setServerProperty("email.smtp_host.secured", "localhost")
       .setServerProperty("email.smtp_port.secured", Integer.toString(smtpServer.getServer().getPort()))
+      .setServerProperty("sonar.web.javaAdditionalOpts", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005")
       .build();
     orchestrator.start();
 

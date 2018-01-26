@@ -19,16 +19,18 @@
  */
 package org.sonar.server.rule;
 
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.apache.commons.lang.ObjectUtils;
 import org.apache.commons.lang.StringUtils;
@@ -61,6 +63,7 @@ import org.sonar.server.rule.index.RuleIndexer;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.Lists.newArrayList;
 import static java.lang.String.format;
+import static org.sonar.core.util.stream.MoreCollectors.toSet;
 
 /**
  * Register rules at server startup
@@ -98,11 +101,15 @@ public class RegisterRules implements Startable {
     Profiler profiler = Profiler.create(LOG).startInfo("Register rules");
     try (DbSession dbSession = dbClient.openSession(false)) {
       Map<RuleKey, RuleDefinitionDto> allRules = loadRules(dbSession);
-      List<Integer> ruleIdsToIndex = new ArrayList<>();
 
       RulesDefinition.Context context = defLoader.load();
       boolean orgsEnabled = organizationFlags.isEnabled(dbSession);
-      for (RulesDefinition.ExtendedRepository repoDef : getRepositories(context)) {
+      List<RulesDefinition.ExtendedRepository> repositories = getRepositories(context);
+
+      Map<RuleKey, RuleKey> renamedRules = detectRenamedKeys(allRules, repositories);
+
+      RuleChangesRecorder recorder = new RuleChangesRecorder();
+      for (RulesDefinition.ExtendedRepository repoDef : repositories) {
         if (languages.get(repoDef.language()) != null) {
           for (RulesDefinition.Rule ruleDef : repoDef.rules()) {
             RuleKey ruleKey = RuleKey.of(ruleDef.repository().key(), ruleDef.key());
@@ -116,27 +123,122 @@ public class RegisterRules implements Startable {
               }
               continue;
             }
-
-            registerRule(ruleDef, allRules, dbSession)
-              .ifPresent(ruleIdsToIndex::add);
+            registerRule(recorder, ruleDef, allRules, renamedRules, dbSession);
           }
           dbSession.commit();
         }
       }
-      List<RuleDefinitionDto> removedRules = processRemainingDbRules(allRules.values(), dbSession);
-      List<ActiveRuleChange> changes = removeActiveRulesOnStillExistingRepositories(dbSession, removedRules, context);
+      processRemainingDbRules(recorder, allRules.values(), dbSession);
+      List<ActiveRuleChange> changes = removeActiveRulesOnStillExistingRepositories(dbSession, recorder, repositories);
       dbSession.commit();
-      ruleIdsToIndex.addAll(removedRules.stream().map(RuleDefinitionDto::getId).collect(Collectors.toList()));
 
       persistRepositories(dbSession, context.repositories());
       // FIXME lack of resiliency, active rules index is corrupted if rule index fails
       // to be updated. Only a single DB commit should be executed.
-      ruleIndexer.commitAndIndex(dbSession, ruleIdsToIndex);
+      ruleIndexer.commitAndIndex(dbSession, recorder.getAll().map(RuleDefinitionDto::getId).collect(toSet()));
       activeRuleIndexer.commitAndIndex(dbSession, changes);
+      recorder.getRenamed().forEach(entry -> LOG.info("Renamed rule detected: %s renamed to %s", entry.getValue(), entry.getKey().getKey()));
       profiler.stopDebug();
 
       webServerRuleFinder.startCaching();
     }
+  }
+
+  private static class RuleChangesRecorder {
+    private final Set<RuleDefinitionDto> created = new HashSet<>();
+    private final Map<RuleDefinitionDto, RuleKey> renamed = new HashMap<>();
+    private final Set<RuleDefinitionDto> updated = new HashSet<>();
+    private final Set<RuleDefinitionDto> removed = new HashSet<>();
+
+    private Stream<RuleDefinitionDto> getCreated() {
+      return created.stream();
+    }
+
+    private Stream<Map.Entry<RuleDefinitionDto, RuleKey>> getRenamed() {
+      return renamed.entrySet().stream();
+    }
+
+    private Stream<RuleDefinitionDto> getUpdated() {
+      return updated.stream();
+    }
+
+    private Stream<RuleDefinitionDto> getRemoved() {
+      return removed.stream();
+    }
+
+    private Stream<RuleDefinitionDto> getAll() {
+      return Stream.of(
+        created.stream(),
+        updated.stream(),
+        removed.stream(),
+        renamed.keySet().stream())
+        .flatMap(s -> s);
+    }
+
+    private boolean isCreated(RuleDefinitionDto ruleDefinition) {
+      return created.contains(ruleDefinition);
+    }
+
+    private boolean isRenamed(RuleDefinitionDto ruleDefinition) {
+      return renamed.containsKey(ruleDefinition);
+    }
+
+    private boolean isUpdated(RuleDefinitionDto ruleDefinition) {
+      return updated.contains(ruleDefinition);
+    }
+
+    private boolean isRemoved(RuleDefinitionDto ruleDefinition) {
+      return removed.contains(ruleDefinition);
+    }
+
+    private void created(RuleDefinitionDto ruleDefinition) {
+      created.add(ruleDefinition);
+    }
+
+    private void renamed(RuleDefinitionDto ruleDefinition, RuleKey previousRuleKey) {
+      renamed.put(ruleDefinition, previousRuleKey);
+    }
+
+    private void updated(RuleDefinitionDto ruleDefinition) {
+      updated.add(ruleDefinition);
+    }
+
+    private void removed(RuleDefinitionDto ruleDefinition) {
+      removed.add(ruleDefinition);
+    }
+  }
+
+  /**
+   * @return ruleKey in db mapped by their new RuleKey
+   */
+  private static Map<RuleKey, RuleKey> detectRenamedKeys(Map<RuleKey, RuleDefinitionDto> allRules, List<RulesDefinition.ExtendedRepository> repositories) {
+    Map<RuleKey, RuleKey> ruleKeysByDeprecatedOnes = loadDeprecatedRuleKeys(repositories);
+    ImmutableMap.Builder<RuleKey, RuleKey> renamedRuleKeys = ImmutableMap.builder();
+    allRules.keySet()
+      .forEach(dbRuleKey -> {
+        RuleKey renamedTo = ruleKeysByDeprecatedOnes.get(dbRuleKey);
+        if (renamedTo != null) {
+          renamedRuleKeys.put(renamedTo, dbRuleKey);
+        }
+      });
+
+    return renamedRuleKeys.build();
+  }
+
+  /**
+   * @return ruleKeys mapped by the deprecated rule keys they declare.
+   */
+  private static Map<RuleKey, RuleKey> loadDeprecatedRuleKeys(List<RulesDefinition.ExtendedRepository> repositories) {
+    ImmutableMap.Builder<RuleKey, RuleKey> builder = ImmutableMap.builder();
+    repositories
+      .forEach(repo -> repo.rules()
+        .stream()
+        .filter(rule -> !rule.deprecatedRuleKeys().isEmpty())
+        .forEach(rule -> {
+          RuleKey ruleKey = RuleKey.of(repo.key(), rule.key());
+          rule.deprecatedRuleKeys().forEach(deprecatedRuleKey -> builder.put(deprecatedRuleKey, ruleKey));
+        }));
+    return builder.build();
   }
 
   private void persistRepositories(DbSession dbSession, List<RulesDefinition.Repository> repositories) {
@@ -154,45 +256,42 @@ public class RegisterRules implements Startable {
     // nothing
   }
 
-  /**
-   * @return the id of the rule if it's just been created or if it's been updated.
-   */
-  private Optional<Integer> registerRule(RulesDefinition.Rule ruleDef, Map<RuleKey, RuleDefinitionDto> allRules, DbSession session) {
+  private void registerRule(RuleChangesRecorder recorder, RulesDefinition.Rule ruleDef,
+    Map<RuleKey, RuleDefinitionDto> allRules, Map<RuleKey, RuleKey> renamedRules,
+    DbSession session) {
     RuleKey ruleKey = RuleKey.of(ruleDef.repository().key(), ruleDef.key());
 
     RuleDefinitionDto existingRule = allRules.remove(ruleKey);
-    boolean newRule;
     RuleDefinitionDto rule;
     if (existingRule == null) {
       rule = createRuleDto(ruleDef, session);
-      newRule = true;
+      recorder.created(rule);
     } else {
       rule = existingRule;
-      newRule = false;
     }
 
-    boolean executeUpdate = false;
+    RuleKey renamedFrom = renamedRules.get(ruleKey);
+    if (renamedFrom != null) {
+      recorder.renamed(rule, renamedFrom);
+    }
+
     if (mergeRule(ruleDef, rule)) {
-      executeUpdate = true;
+      recorder.updated(rule);
     }
 
     if (mergeDebtDefinitions(ruleDef, rule)) {
-      executeUpdate = true;
+      recorder.updated(rule);
     }
 
     if (mergeTags(ruleDef, rule)) {
-      executeUpdate = true;
+      recorder.updated(rule);
     }
 
-    if (executeUpdate) {
+    if (recorder.isUpdated(rule) || recorder.isRenamed(rule)) {
       update(session, rule);
     }
 
     mergeParams(ruleDef, rule, session);
-    if(newRule || executeUpdate) {
-      return Optional.of(rule.getId());
-    }
-    return Optional.empty();
   }
 
   private Map<RuleKey, RuleDefinitionDto> loadRules(DbSession session) {
@@ -417,16 +516,15 @@ public class RegisterRules implements Startable {
     return changed;
   }
 
-  private List<RuleDefinitionDto> processRemainingDbRules(Collection<RuleDefinitionDto> existingRules, DbSession session) {
+  private void processRemainingDbRules(RuleChangesRecorder recorder, Collection<RuleDefinitionDto> existingRules, DbSession session) {
     // custom rules check status of template, so they must be processed at the end
     List<RuleDefinitionDto> customRules = newArrayList();
-    List<RuleDefinitionDto> removedRules = newArrayList();
 
     for (RuleDefinitionDto rule : existingRules) {
       if (rule.isCustomRule()) {
         customRules.add(rule);
       } else if (rule.getStatus() != RuleStatus.REMOVED) {
-        removeRule(session, removedRules, rule);
+        removeRule(session, recorder, rule);
       }
     }
 
@@ -439,15 +537,14 @@ public class RegisterRules implements Startable {
           update(session, customRule);
         }
       } else {
-        removeRule(session, removedRules, customRule);
+        removeRule(session, recorder, customRule);
       }
     }
 
     session.commit();
-    return removedRules;
   }
 
-  private void removeRule(DbSession session, List<RuleDefinitionDto> removedRules, RuleDefinitionDto rule) {
+  private void removeRule(DbSession session, RuleChangesRecorder recorder, RuleDefinitionDto rule) {
     LOG.info(format("Disable rule %s", rule.getKey()));
     rule.setStatus(RuleStatus.REMOVED);
     rule.setSystemTags(Collections.emptySet());
@@ -455,8 +552,8 @@ public class RegisterRules implements Startable {
     // FIXME resetting the tags for all organizations must be handled a different way
     // rule.setTags(Collections.emptySet());
     // update(session, rule.getMetadata());
-    removedRules.add(rule);
-    if (removedRules.size() % 100 == 0) {
+    recorder.removed(rule);
+    if (recorder.getRemoved().count() % 100 == 0) {
       session.commit();
     }
   }
@@ -513,19 +610,21 @@ public class RegisterRules implements Startable {
    * The side effect of this approach is that extended repositories will not be managed the same way.
    * If an extended repository do not exists anymore, then related active rules will be removed.
    */
-  private List<ActiveRuleChange> removeActiveRulesOnStillExistingRepositories(DbSession dbSession, Collection<RuleDefinitionDto> removedRules, RulesDefinition.Context context) {
-    List<String> repositoryKeys = newArrayList(Iterables.transform(context.repositories(), RulesDefinition.Repository::key));
+  private List<ActiveRuleChange> removeActiveRulesOnStillExistingRepositories(DbSession dbSession, RuleChangesRecorder recorder, List<RulesDefinition.ExtendedRepository> context) {
+    List<String> repositoryKeys = context.stream()
+      .map(RulesDefinition.ExtendedRepository::key)
+      .collect(MoreCollectors.toList(context.size()));
 
     List<ActiveRuleChange> changes = new ArrayList<>();
     Profiler profiler = Profiler.create(Loggers.get(getClass()));
-    for (RuleDefinitionDto rule : removedRules) {
+    recorder.getRemoved().forEach(rule -> {
       // SONAR-4642 Remove active rules only when repository still exists
       if (repositoryKeys.contains(rule.getRepositoryKey())) {
         profiler.start();
         changes.addAll(qProfileRules.deleteRule(dbSession, rule));
         profiler.stopDebug(format("Remove active rule for rule %s", rule.getKey()));
       }
-    }
+    });
     return changes;
   }
 
