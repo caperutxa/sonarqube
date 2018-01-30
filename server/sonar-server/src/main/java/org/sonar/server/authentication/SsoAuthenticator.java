@@ -46,6 +46,7 @@ import org.sonar.server.authentication.event.AuthenticationException;
 import org.sonar.server.exceptions.BadRequestException;
 
 import static org.apache.commons.lang.time.DateUtils.addMinutes;
+import static org.sonar.server.authentication.UserIdentityAuthenticator.ExistingEmailStrategy.FORBID;
 import static org.sonar.server.user.ExternalIdentity.SQ_AUTHORITY;
 
 public class SsoAuthenticator implements Startable {
@@ -170,7 +171,7 @@ public class SsoAuthenticator implements Startable {
       String groupsValue = getHeaderValue(headerValuesByNames, GROUPS_HEADER_PARAM);
       userIdentityBuilder.setGroups(groupsValue == null ? Collections.emptySet() : new HashSet<>(COMA_SPLITTER.splitToList(groupsValue)));
     }
-    return userIdentityAuthenticator.authenticate(userIdentityBuilder.build(), new SsoIdentityProvider(), Source.sso());
+    return userIdentityAuthenticator.authenticate(userIdentityBuilder.build(), new SsoIdentityProvider(), Source.sso(), FORBID);
   }
 
   @CheckForNull

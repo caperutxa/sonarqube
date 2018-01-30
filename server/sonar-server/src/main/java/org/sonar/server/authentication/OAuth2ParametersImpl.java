@@ -35,6 +35,7 @@ import javax.servlet.http.HttpServletResponse;
 import static java.net.URLDecoder.decode;
 import static java.net.URLEncoder.encode;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.apache.commons.lang.StringUtils.isNotBlank;
 import static org.sonar.server.authentication.Cookies.findCookie;
 import static org.sonar.server.authentication.Cookies.newCookieBuilder;
 
@@ -48,15 +49,31 @@ public class OAuth2ParametersImpl implements Oauth2Parameters {
    */
   private static final String RETURN_TO_PARAMETER = "return_to";
 
+  /**
+   * This parameter is used to allow the shift of email from an existing user to the authenticating user
+   */
+  private static final String ALLOW_EMAIL_SHIFT_PARAMETER = "allow_email_shift";
+
   private static final Type JSON_MAP_TYPE = new TypeToken<HashMap<String, String>>() {
   }.getType();
 
   @Override
   public void init(HttpServletRequest request, HttpServletResponse response) {
     String returnTo = request.getParameter(RETURN_TO_PARAMETER);
+    String allowEmailShift = request.getParameter(ALLOW_EMAIL_SHIFT_PARAMETER);
+    Map<String, String> parameters = new HashMap<>();
+    if (isNotBlank(returnTo)) {
+      parameters.put(RETURN_TO_PARAMETER, returnTo);
+    }
+    if (isNotBlank(allowEmailShift)) {
+      parameters.put(ALLOW_EMAIL_SHIFT_PARAMETER, allowEmailShift);
+    }
+    if (parameters.isEmpty()) {
+      return;
+    }
     response.addCookie(newCookieBuilder(request)
       .setName(AUTHENTICATION_COOKIE_NAME)
-      .setValue(toJson(ImmutableMap.of(RETURN_TO_PARAMETER, returnTo)))
+      .setValue(toJson(parameters))
       .setHttpOnly(true)
       .setExpiry(-1)
       .build());
@@ -65,6 +82,12 @@ public class OAuth2ParametersImpl implements Oauth2Parameters {
   @Override
   public Optional<String> getReturnTo(HttpServletRequest request) {
     return getParameter(request, RETURN_TO_PARAMETER);
+  }
+
+  @Override
+  public Optional<Boolean> getAllowEmailShift(HttpServletRequest request) {
+    Optional<String> parameter = getParameter(request, ALLOW_EMAIL_SHIFT_PARAMETER);
+    return parameter.map(Boolean::parseBoolean);
   }
 
   private static Optional<String> getParameter(HttpServletRequest request, String parameterKey) {

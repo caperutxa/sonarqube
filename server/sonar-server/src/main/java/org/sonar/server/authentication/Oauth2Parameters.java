@@ -35,6 +35,8 @@ public interface Oauth2Parameters {
 
   Optional<String> getReturnTo(HttpServletRequest request);
 
+  Optional<Boolean> getAllowEmailShift(HttpServletRequest request);
+
   void delete(HttpServletRequest request, HttpServletResponse response);
 
 }

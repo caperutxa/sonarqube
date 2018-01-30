@@ -25,10 +25,12 @@ import org.sonar.api.platform.Server;
 import org.sonar.api.server.authentication.BaseIdentityProvider;
 import org.sonar.api.server.authentication.UserIdentity;
 import org.sonar.db.user.UserDto;
+import org.sonar.server.authentication.event.AuthenticationEvent.Source;
 import org.sonar.server.user.ThreadLocalUserSession;
 import org.sonar.server.user.UserSessionFactory;
 
-import static org.sonar.server.authentication.event.AuthenticationEvent.Source;
+import static org.sonar.server.authentication.UserIdentityAuthenticator.ExistingEmailStrategy.ALLOW;
+import static org.sonar.server.authentication.UserIdentityAuthenticator.ExistingEmailStrategy.WARN;
 
 public class BaseContextFactory {
 
@@ -37,14 +39,16 @@ public class BaseContextFactory {
   private final Server server;
   private final JwtHttpHandler jwtHttpHandler;
   private final UserSessionFactory userSessionFactory;
+  private final Oauth2Parameters oAuthParameters;
 
   public BaseContextFactory(UserIdentityAuthenticator userIdentityAuthenticator, Server server, JwtHttpHandler jwtHttpHandler,
-    ThreadLocalUserSession threadLocalUserSession, UserSessionFactory userSessionFactory) {
+    ThreadLocalUserSession threadLocalUserSession, UserSessionFactory userSessionFactory, Oauth2Parameters oAuthParameters) {
     this.userSessionFactory = userSessionFactory;
     this.userIdentityAuthenticator = userIdentityAuthenticator;
     this.server = server;
     this.jwtHttpHandler = jwtHttpHandler;
     this.threadLocalUserSession = threadLocalUserSession;
+    this.oAuthParameters = oAuthParameters;
   }
 
   public BaseIdentityProvider.Context newContext(HttpServletRequest request, HttpServletResponse response, BaseIdentityProvider identityProvider) {
@@ -79,7 +83,9 @@ public class BaseContextFactory {
 
     @Override
     public void authenticate(UserIdentity userIdentity) {
-      UserDto userDto = userIdentityAuthenticator.authenticate(userIdentity, identityProvider, Source.external(identityProvider));
+      Boolean allowEmailShift = oAuthParameters.getAllowEmailShift(request).orElse(false);
+      oAuthParameters.delete(request, response);
+      UserDto userDto = userIdentityAuthenticator.authenticate(userIdentity, identityProvider, Source.external(identityProvider), allowEmailShift ? ALLOW : WARN);
       jwtHttpHandler.generateToken(userDto, request, response);
       threadLocalUserSession.set(userSessionFactory.create(userDto));
     }

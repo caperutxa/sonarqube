@@ -36,6 +36,7 @@ import org.sonar.server.authentication.event.AuthenticationException;
 import static java.lang.String.format;
 import static org.sonar.server.authentication.AuthenticationError.handleAuthenticationError;
 import static org.sonar.server.authentication.AuthenticationError.handleError;
+import static org.sonar.server.authentication.AuthenticationRedirection.redirectTo;
 import static org.sonar.server.authentication.event.AuthenticationEvent.Source;
 
 public class InitFilter extends AuthenticationFilter {
@@ -45,15 +46,15 @@ public class InitFilter extends AuthenticationFilter {
   private final BaseContextFactory baseContextFactory;
   private final OAuth2ContextFactory oAuth2ContextFactory;
   private final AuthenticationEvent authenticationEvent;
-  private final Oauth2Parameters oAuthAuthenticationParameters;
+  private final Oauth2Parameters oauth2Parameters;
 
   public InitFilter(IdentityProviderRepository identityProviderRepository, BaseContextFactory baseContextFactory,
-    OAuth2ContextFactory oAuth2ContextFactory, Server server, AuthenticationEvent authenticationEvent, Oauth2Parameters oAuthAuthenticationParameters) {
+    OAuth2ContextFactory oAuth2ContextFactory, Server server, AuthenticationEvent authenticationEvent, Oauth2Parameters oauth2Parameters) {
     super(server, identityProviderRepository);
     this.baseContextFactory = baseContextFactory;
     this.oAuth2ContextFactory = oAuth2ContextFactory;
     this.authenticationEvent = authenticationEvent;
-    this.oAuthAuthenticationParameters = oAuthAuthenticationParameters;
+    this.oauth2Parameters = oauth2Parameters;
   }
 
   @Override
@@ -82,11 +83,14 @@ public class InitFilter extends AuthenticationFilter {
         handleError(response, format("Unsupported IdentityProvider class: %s", provider.getClass()));
       }
     } catch (AuthenticationException e) {
-      oAuthAuthenticationParameters.delete(request, response);
+      oauth2Parameters.delete(request, response);
       authenticationEvent.loginFailure(request, e);
       handleAuthenticationError(e, response, getContextPath());
+    } catch (EmailAlreadyExistException e) {
+      oauth2Parameters.delete(request, response);
+      redirectTo(response, e.getPath(getContextPath()));
     } catch (Exception e) {
-      oAuthAuthenticationParameters.delete(request, response);
+      oauth2Parameters.delete(request, response);
       handleError(e, response, format("Fail to initialize authentication with provider '%s'", provider.getKey()));
     }
   }
@@ -105,7 +109,7 @@ public class InitFilter extends AuthenticationFilter {
 
   private void handleOAuth2IdentityProvider(HttpServletRequest request, HttpServletResponse response, OAuth2IdentityProvider provider) {
     try {
-      oAuthAuthenticationParameters.init(request, response);
+      oauth2Parameters.init(request, response);
       provider.init(oAuth2ContextFactory.newContext(request, response, provider));
     } catch (UnauthorizedException e) {
       throw AuthenticationException.newBuilder()

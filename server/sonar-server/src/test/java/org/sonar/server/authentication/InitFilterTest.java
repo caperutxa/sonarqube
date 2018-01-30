@@ -33,8 +33,10 @@ import org.sonar.api.server.authentication.Display;
 import org.sonar.api.server.authentication.IdentityProvider;
 import org.sonar.api.server.authentication.OAuth2IdentityProvider;
 import org.sonar.api.server.authentication.UnauthorizedException;
+import org.sonar.api.server.authentication.UserIdentity;
 import org.sonar.api.utils.log.LogTester;
 import org.sonar.api.utils.log.LoggerLevel;
+import org.sonar.db.user.UserDto;
 import org.sonar.server.authentication.event.AuthenticationEvent;
 import org.sonar.server.authentication.event.AuthenticationException;
 
@@ -44,6 +46,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyZeroInteractions;
 import static org.mockito.Mockito.when;
+import static org.sonar.db.user.UserTesting.newUserDto;
 
 public class InitFilterTest {
 
@@ -213,6 +216,19 @@ public class InitFilterTest {
   }
 
   @Test
+  public void redirect_when_failing_because_of_EmailAlreadyExistException() throws Exception {
+    UserDto existingUser = newUserDto().setEmail("john@email.com").setExternalIdentity("john.bitbucket").setExternalIdentityProvider("bitbucket");
+    FailWithEmailAlreadyExistException identityProvider = new FailWithEmailAlreadyExistException("failing", existingUser);
+    when(request.getRequestURI()).thenReturn("/sessions/init/" + identityProvider.getKey());
+    identityProviderRepository.addIdentityProvider(identityProvider);
+
+    underTest.doFilter(request, response, chain);
+
+    verify(response).sendRedirect("/sessions/email_already_exists?email=john%40email.com&login=john.github&provider=failing&existingLogin=john.bitbucket&existingProvider=bitbucket");
+    verify(oAuthRedirection).delete(eq(request), eq(response));
+  }
+
+  @Test
   public void redirect_when_failing_because_of_Exception() throws Exception {
     IdentityProvider identityProvider = new FailWithIllegalStateException("failing");
     when(request.getRequestURI()).thenReturn("/sessions/init/" + identityProvider.getKey());
@@ -266,6 +282,26 @@ public class InitFilterTest {
     @Override
     public void init(Context context) {
       throw new IllegalStateException("Failure !");
+    }
+  }
+
+  private static class FailWithEmailAlreadyExistException extends FakeBasicIdentityProvider {
+
+    private final UserDto existingUser;
+
+    public FailWithEmailAlreadyExistException(String key, UserDto existingUser) {
+      super(key, true);
+      this.existingUser = existingUser;
+    }
+
+    @Override
+    public void init(Context context) {
+      throw new EmailAlreadyExistException(existingUser.getEmail(), existingUser, UserIdentity.builder()
+        .setProviderLogin("john.github")
+        .setLogin("john.github")
+        .setName(existingUser.getName())
+        .setEmail(existingUser.getEmail())
+        .build(), this);
     }
   }
 

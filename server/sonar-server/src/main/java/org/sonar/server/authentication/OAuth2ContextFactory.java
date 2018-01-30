@@ -34,6 +34,8 @@ import org.sonar.server.user.UserSessionFactory;
 
 import static java.lang.String.format;
 import static org.sonar.server.authentication.OAuth2CallbackFilter.CALLBACK_PATH;
+import static org.sonar.server.authentication.UserIdentityAuthenticator.ExistingEmailStrategy.ALLOW;
+import static org.sonar.server.authentication.UserIdentityAuthenticator.ExistingEmailStrategy.WARN;
 
 @ServerSide
 public class OAuth2ContextFactory {
@@ -124,7 +126,8 @@ public class OAuth2ContextFactory {
 
     @Override
     public void authenticate(UserIdentity userIdentity) {
-      UserDto userDto = userIdentityAuthenticator.authenticate(userIdentity, identityProvider, AuthenticationEvent.Source.oauth2(identityProvider));
+      Boolean allowEmailShift = oAuthParameters.getAllowEmailShift(request).orElse(false);
+      UserDto userDto = userIdentityAuthenticator.authenticate(userIdentity, identityProvider, AuthenticationEvent.Source.oauth2(identityProvider), allowEmailShift ? ALLOW : WARN);
       jwtHttpHandler.generateToken(userDto, request, response);
       threadLocalUserSession.set(userSessionFactory.create(userDto));
     }

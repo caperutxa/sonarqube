@@ -201,7 +201,7 @@ public class OAuth2CallbackFilterTest {
 
     underTest.doFilter(request, response, chain);
 
-    verify(response).sendRedirect("/sessions/email_already_exists?email=john%40email.com&login=john.github&provider=github&existingLogin=john.bitbucket&existingProvider=bitbucket");
+    verify(response).sendRedirect("/sessions/email_already_exists?email=john%40email.com&login=john.github&provider=failing&existingLogin=john.bitbucket&existingProvider=bitbucket");
     verify(oAuthRedirection).delete(eq(request), eq(response));
   }
 
@@ -251,11 +251,11 @@ public class OAuth2CallbackFilterTest {
     @Override
     public void callback(CallbackContext context) {
       throw new EmailAlreadyExistException(existingUser.getEmail(), existingUser, UserIdentity.builder()
-        .setName("github")
         .setProviderLogin("john.github")
         .setLogin("john.github")
+        .setName(existingUser.getName())
         .setEmail(existingUser.getEmail())
-        .build());
+        .build(), this);
     }
   }
 

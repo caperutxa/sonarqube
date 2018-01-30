@@ -20,6 +20,7 @@
 
 package org.sonar.server.authentication;
 
+import org.sonar.api.server.authentication.IdentityProvider;
 import org.sonar.api.server.authentication.UserIdentity;
 import org.sonar.db.user.UserDto;
 
@@ -38,18 +39,20 @@ public class EmailAlreadyExistException extends RuntimeException {
   private final String email;
   private final UserDto existingUser;
   private final UserIdentity userIdentity;
+  private IdentityProvider provider;
 
-  public EmailAlreadyExistException(String email, UserDto existingUser, UserIdentity userIdentity) {
+  EmailAlreadyExistException(String email, UserDto existingUser, UserIdentity userIdentity, IdentityProvider provider) {
     this.email = email;
     this.existingUser = existingUser;
     this.userIdentity = userIdentity;
+    this.provider = provider;
   }
 
   public String getPath(String contextPath) {
     return contextPath + format(PATH_WITH_MESSAGE,
       encodeMessage(email),
       encodeMessage(userIdentity.getProviderLogin()),
-      encodeMessage(userIdentity.getName()),
+      encodeMessage(provider.getKey()),
       encodeMessage(existingUser.getExternalIdentity()),
       encodeMessage(existingUser.getExternalIdentityProvider()));
   }

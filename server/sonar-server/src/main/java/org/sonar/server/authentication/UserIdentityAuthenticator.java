@@ -53,6 +53,24 @@ import static org.sonar.core.util.stream.MoreCollectors.uniqueIndex;
 
 public class UserIdentityAuthenticator {
 
+  /**
+   * Strategy to be executed when the email of the user is already used by another user
+   */
+  enum ExistingEmailStrategy {
+    /**
+     * Authentication is allowed, the email is moved from other user to current user
+     */
+    ALLOW,
+    /**
+     * Authentication process is stopped, the user is redirected to a page explaining that the email is already used
+     * */
+    WARN,
+    /**
+     * Forbid authentication of the user
+     **/
+    FORBID
+  }
+
   private static final Logger LOGGER = Loggers.get(UserIdentityAuthenticator.class);
 
   private final DbClient dbClient;
@@ -70,23 +88,24 @@ public class UserIdentityAuthenticator {
     this.defaultGroupFinder = defaultGroupFinder;
   }
 
-  public UserDto authenticate(UserIdentity user, IdentityProvider provider, AuthenticationEvent.Source source) {
-    return register(user, provider, source);
+  public UserDto authenticate(UserIdentity user, IdentityProvider provider, AuthenticationEvent.Source source, ExistingEmailStrategy existingEmailStrategy) {
+    return register(user, provider, source, existingEmailStrategy);
   }
 
-  private UserDto register(UserIdentity user, IdentityProvider provider, AuthenticationEvent.Source source) {
+  private UserDto register(UserIdentity user, IdentityProvider provider, AuthenticationEvent.Source source, ExistingEmailStrategy existingEmailStrategy) {
     try (DbSession dbSession = dbClient.openSession(false)) {
       String userLogin = user.getLogin();
       UserDto userDto = dbClient.userDao().selectByLogin(dbSession, userLogin);
       if (userDto != null && userDto.isActive()) {
-        registerExistingUser(dbSession, userDto, user, provider);
+        registerExistingUser(dbSession, userDto, user, provider, source, existingEmailStrategy);
         return userDto;
       }
-      return registerNewUser(dbSession, user, provider, source);
+      return registerNewUser(dbSession, user, provider, source, existingEmailStrategy);
     }
   }
 
-  private UserDto registerNewUser(DbSession dbSession, UserIdentity identity, IdentityProvider provider, AuthenticationEvent.Source source) {
+  private UserDto registerNewUser(DbSession dbSession, UserIdentity identity, IdentityProvider provider, AuthenticationEvent.Source source,
+    ExistingEmailStrategy existingEmailStrategy) {
     if (!provider.allowsUsersToSignUp()) {
       throw AuthenticationException.newBuilder()
         .setSource(source)
@@ -95,29 +114,53 @@ public class UserIdentityAuthenticator {
         .setPublicMessage(format("'%s' users are not allowed to sign up", provider.getKey()))
         .build();
     }
-
-    String email = identity.getEmail();
-    if (email != null) {
-      UserDto existingUser = dbClient.userDao().selectByEmail(dbSession, email);
-      if (existingUser != null) {
-        throw new EmailAlreadyExistException(email, existingUser, identity);
-      }
-    }
-
-    String userLogin = identity.getLogin();
+    validateEmail(dbSession, identity, provider, source, existingEmailStrategy);
     return userUpdater.createAndCommit(dbSession, NewUser.builder()
-      .setLogin(userLogin)
+      .setLogin(identity.getLogin())
       .setEmail(identity.getEmail())
       .setName(identity.getName())
       .setExternalIdentity(new ExternalIdentity(provider.getKey(), identity.getProviderLogin()))
       .build(), u -> syncGroups(dbSession, identity, u));
   }
 
-  private void registerExistingUser(DbSession dbSession, UserDto userDto, UserIdentity identity, IdentityProvider provider) {
+  private void validateEmail(DbSession dbSession, UserIdentity identity, IdentityProvider provider, AuthenticationEvent.Source source,
+    ExistingEmailStrategy existingEmailStrategy) {
+    String email = identity.getEmail();
+    if (email == null) {
+      return;
+    }
+    UserDto existingUser = dbClient.userDao().selectByEmail(dbSession, email);
+    if (existingUser == null || existingUser.getLogin().equals(identity.getLogin())) {
+      return;
+    }
+    switch (existingEmailStrategy) {
+      case ALLOW:
+        existingUser.setEmail(null);
+        dbClient.userDao().update(dbSession, existingUser);
+        return;
+      case WARN:
+        throw new EmailAlreadyExistException(email, existingUser, identity, provider);
+      case FORBID:
+        throw AuthenticationException.newBuilder()
+          .setSource(source)
+          .setLogin(identity.getLogin())
+          .setMessage(format("Email '%s' is already used", email))
+          .setPublicMessage(format(
+            "You can't sign up because email '%s' is already used by an existing user. This means that you probably already registered with another account.",
+            email))
+          .build();
+      default:
+        throw new IllegalStateException(format("Unknown strategy %s", existingEmailStrategy));
+    }
+  }
+
+  private void registerExistingUser(DbSession dbSession, UserDto userDto, UserIdentity identity, IdentityProvider provider, AuthenticationEvent.Source source,
+    ExistingEmailStrategy existingEmailStrategy) {
     UpdateUser update = UpdateUser.create(userDto.getLogin())
       .setEmail(identity.getEmail())
       .setName(identity.getName())
       .setExternalIdentity(new ExternalIdentity(provider.getKey(), identity.getProviderLogin()));
+    validateEmail(dbSession, identity, provider, source, existingEmailStrategy);
     userUpdater.updateAndCommit(dbSession, update, u -> syncGroups(dbSession, identity, u));
   }
 

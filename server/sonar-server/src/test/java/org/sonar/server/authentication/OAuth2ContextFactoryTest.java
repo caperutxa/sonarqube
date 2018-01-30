@@ -31,8 +31,6 @@ import org.sonar.api.platform.Server;
 import org.sonar.api.server.authentication.OAuth2IdentityProvider;
 import org.sonar.api.server.authentication.UserIdentity;
 import org.sonar.api.utils.System2;
-import org.sonar.db.DbClient;
-import org.sonar.db.DbSession;
 import org.sonar.db.DbTester;
 import org.sonar.db.user.UserDto;
 import org.sonar.server.user.TestUserSessionFactory;
@@ -45,7 +43,8 @@ import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.sonar.db.user.UserTesting.newUserDto;
+import static org.sonar.server.authentication.UserIdentityAuthenticator.ExistingEmailStrategy.ALLOW;
+import static org.sonar.server.authentication.UserIdentityAuthenticator.ExistingEmailStrategy.WARN;
 import static org.sonar.server.authentication.event.AuthenticationEvent.Source;
 
 public class OAuth2ContextFactoryTest {
@@ -66,8 +65,6 @@ public class OAuth2ContextFactoryTest {
   @Rule
   public DbTester dbTester = DbTester.create(System2.INSTANCE);
 
-  private DbClient dbClient = dbTester.getDbClient();
-  private DbSession dbSession = dbTester.getSession();
   private ThreadLocalUserSession threadLocalUserSession = mock(ThreadLocalUserSession.class);
   private UserIdentityAuthenticator userIdentityAuthenticator = mock(UserIdentityAuthenticator.class);
   private Server server = mock(Server.class);
@@ -85,13 +82,9 @@ public class OAuth2ContextFactoryTest {
 
   @Before
   public void setUp() throws Exception {
-    UserDto userDto = dbClient.userDao().insert(dbSession, newUserDto());
-    dbSession.commit();
-
     when(request.getSession()).thenReturn(session);
     when(identityProvider.getKey()).thenReturn(PROVIDER_KEY);
     when(identityProvider.getName()).thenReturn(PROVIDER_NAME);
-    when(userIdentityAuthenticator.authenticate(USER_IDENTITY, identityProvider, Source.oauth2(identityProvider))).thenReturn(userDto);
   }
 
   @Test
@@ -136,13 +129,27 @@ public class OAuth2ContextFactoryTest {
 
   @Test
   public void authenticate() {
+    UserDto userDto = dbTester.users().insertUser();
+    when(userIdentityAuthenticator.authenticate(USER_IDENTITY, identityProvider, Source.oauth2(identityProvider), WARN)).thenReturn(userDto);
     OAuth2IdentityProvider.CallbackContext callback = newCallbackContext();
 
     callback.authenticate(USER_IDENTITY);
 
-    verify(userIdentityAuthenticator).authenticate(USER_IDENTITY, identityProvider, Source.oauth2(identityProvider));
+    verify(userIdentityAuthenticator).authenticate(USER_IDENTITY, identityProvider, Source.oauth2(identityProvider), WARN);
     verify(jwtHttpHandler).generateToken(any(UserDto.class), eq(request), eq(response));
     verify(threadLocalUserSession).set(any(UserSession.class));
+  }
+
+  @Test
+  public void authenticate_with_allow_email_shift() {
+    when(oAuthParameters.getAllowEmailShift(request)).thenReturn(Optional.of(true));
+    UserDto userDto = dbTester.users().insertUser();
+    when(userIdentityAuthenticator.authenticate(USER_IDENTITY, identityProvider, Source.oauth2(identityProvider), ALLOW)).thenReturn(userDto);
+    OAuth2IdentityProvider.CallbackContext callback = newCallbackContext();
+
+    callback.authenticate(USER_IDENTITY);
+
+    verify(userIdentityAuthenticator).authenticate(USER_IDENTITY, identityProvider, Source.oauth2(identityProvider), ALLOW);
   }
 
   @Test
