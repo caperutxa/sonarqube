@@ -37,6 +37,7 @@ import org.sonar.server.authentication.event.AuthenticationException;
 import static java.lang.String.format;
 import static org.sonar.server.authentication.AuthenticationError.handleAuthenticationError;
 import static org.sonar.server.authentication.AuthenticationError.handleError;
+import static org.sonar.server.authentication.AuthenticationRedirection.redirectTo;
 import static org.sonar.server.authentication.event.AuthenticationEvent.Source;
 
 public class OAuth2CallbackFilter extends AuthenticationFilter {
@@ -80,6 +81,9 @@ public class OAuth2CallbackFilter extends AuthenticationFilter {
       oauth2Parameters.delete(request, response);
       authenticationEvent.loginFailure(request, e);
       handleAuthenticationError(e, response, getContextPath());
+    } catch (EmailAlreadyExistException e) {
+      oauth2Parameters.delete(request, response);
+      redirectTo(response, e.getPath(getContextPath()));
     } catch (Exception e) {
       oauth2Parameters.delete(request, response);
       handleError(e, response, format("Fail to callback authentication with '%s'", provider.getKey()));

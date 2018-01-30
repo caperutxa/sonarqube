@@ -97,15 +97,11 @@ public class UserIdentityAuthenticator {
     }
 
     String email = identity.getEmail();
-    if (email != null && dbClient.userDao().doesEmailExist(dbSession, email)) {
-      throw AuthenticationException.newBuilder()
-        .setSource(source)
-        .setLogin(identity.getLogin())
-        .setMessage(format("Email '%s' is already used", email))
-        .setPublicMessage(format(
-          "You can't sign up because email '%s' is already used by an existing user. This means that you probably already registered with another account.",
-          email))
-        .build();
+    if (email != null) {
+      UserDto existingUser = dbClient.userDao().selectByEmail(dbSession, email);
+      if (existingUser != null) {
+        throw new EmailAlreadyExistException(email, existingUser, identity);
+      }
     }
 
     String userLogin = identity.getLogin();

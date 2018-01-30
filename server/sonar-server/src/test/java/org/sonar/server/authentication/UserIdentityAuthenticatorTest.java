@@ -26,7 +26,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.sonar.api.config.internal.MapSettings;
 import org.sonar.api.server.authentication.UserIdentity;
-import org.sonar.api.utils.System2;
 import org.sonar.api.utils.internal.AlwaysIncreasingSystem2;
 import org.sonar.core.util.stream.MoreCollectors;
 import org.sonar.db.DbTester;
@@ -74,7 +73,7 @@ public class UserIdentityAuthenticatorTest {
   private MapSettings settings = new MapSettings();
 
   @Rule
-  public ExpectedException thrown = ExpectedException.none();
+  public ExpectedException expectedException = ExpectedException.none();
   @Rule
   public DbTester db = DbTester.create(new AlwaysIncreasingSystem2());
   @Rule
@@ -310,8 +309,8 @@ public class UserIdentityAuthenticatorTest {
       .setAllowsUsersToSignUp(false);
     Source source = Source.realm(Method.FORM, identityProvider.getName());
 
-    thrown.expect(authenticationException().from(source).withLogin(USER_IDENTITY.getLogin()).andPublicMessage("'github' users are not allowed to sign up"));
-    thrown.expectMessage("User signup disabled for provider 'github'");
+    expectedException.expect(authenticationException().from(source).withLogin(USER_IDENTITY.getLogin()).andPublicMessage("'github' users are not allowed to sign up"));
+    expectedException.expectMessage("User signup disabled for provider 'github'");
     underTest.authenticate(USER_IDENTITY, identityProvider, source);
   }
 
@@ -323,11 +322,8 @@ public class UserIdentityAuthenticatorTest {
       .setEmail("john@email.com"));
     Source source = Source.realm(Method.FORM, IDENTITY_PROVIDER.getName());
 
-    thrown.expect(authenticationException().from(source)
-      .withLogin(USER_IDENTITY.getLogin())
-      .andPublicMessage("You can't sign up because email 'john@email.com' is already used by an existing user. " +
-        "This means that you probably already registered with another account."));
-    thrown.expectMessage("Email 'john@email.com' is already used");
+    expectedException.expect(EmailAlreadyExistException.class);
+
     underTest.authenticate(USER_IDENTITY, IDENTITY_PROVIDER, source);
   }
 
