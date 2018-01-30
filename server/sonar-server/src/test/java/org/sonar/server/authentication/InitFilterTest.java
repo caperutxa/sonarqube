@@ -72,7 +72,7 @@ public class InitFilterTest {
   private FakeBasicIdentityProvider baseIdentityProvider = new FakeBasicIdentityProvider(BASIC_PROVIDER_KEY, true);
   private BaseIdentityProvider.Context baseContext = mock(BaseIdentityProvider.Context.class);
   private AuthenticationEvent authenticationEvent = mock(AuthenticationEvent.class);
-  private OAuth2Redirection oAuthRedirection = mock(OAuth2Redirection.class);
+  private Oauth2Parameters oAuthRedirection = mock(Oauth2Parameters.class);
 
   private ArgumentCaptor<AuthenticationException> authenticationExceptionCaptor = ArgumentCaptor.forClass(AuthenticationException.class);
 
@@ -91,7 +91,7 @@ public class InitFilterTest {
   }
 
   @Test
-  public void do_filter_with_context() throws Exception {
+  public void do_filter_with_context() {
     when(server.getContextPath()).thenReturn("/sonarqube");
     when(request.getRequestURI()).thenReturn("/sonarqube/sessions/init/" + OAUTH2_PROVIDER_KEY);
     identityProviderRepository.addIdentityProvider(oAuth2IdentityProvider);
@@ -100,11 +100,10 @@ public class InitFilterTest {
 
     assertOAuth2InitCalled();
     verifyZeroInteractions(authenticationEvent);
-    verify(oAuthRedirection).create(eq(request), eq(response));
   }
 
   @Test
-  public void do_filter_on_auth2_identity_provider() throws Exception {
+  public void do_filter_on_auth2_identity_provider() {
     when(request.getRequestURI()).thenReturn("/sessions/init/" + OAUTH2_PROVIDER_KEY);
     identityProviderRepository.addIdentityProvider(oAuth2IdentityProvider);
 
@@ -112,11 +111,10 @@ public class InitFilterTest {
 
     assertOAuth2InitCalled();
     verifyZeroInteractions(authenticationEvent);
-    verify(oAuthRedirection).create(eq(request), eq(response));
   }
 
   @Test
-  public void do_filter_on_basic_identity_provider() throws Exception {
+  public void do_filter_on_basic_identity_provider() {
     when(request.getRequestURI()).thenReturn("/sessions/init/" + BASIC_PROVIDER_KEY);
     identityProviderRepository.addIdentityProvider(baseIdentityProvider);
 
@@ -124,6 +122,26 @@ public class InitFilterTest {
 
     assertBasicInitCalled();
     verifyZeroInteractions(authenticationEvent);
+  }
+
+  @Test
+  public void init_oauth2_parameter() {
+    when(server.getContextPath()).thenReturn("/sonarqube");
+    when(request.getRequestURI()).thenReturn("/sonarqube/sessions/init/" + OAUTH2_PROVIDER_KEY);
+    identityProviderRepository.addIdentityProvider(oAuth2IdentityProvider);
+
+    underTest.doFilter(request, response, chain);
+
+    verify(oAuthRedirection).init(eq(request), eq(response));
+  }
+
+  @Test
+  public void does_not_init_oauth2_parameter_on_basic_authentication() {
+    when(request.getRequestURI()).thenReturn("/sessions/init/" + BASIC_PROVIDER_KEY);
+    identityProviderRepository.addIdentityProvider(baseIdentityProvider);
+
+    underTest.doFilter(request, response, chain);
+
     verifyZeroInteractions(oAuthRedirection);
   }
 
@@ -178,7 +196,7 @@ public class InitFilterTest {
     assertThat(authenticationException.getSource()).isEqualTo(AuthenticationEvent.Source.external(identityProvider));
     assertThat(authenticationException.getLogin()).isNull();
     assertThat(authenticationException.getPublicMessage()).isEqualTo("Email john@email.com is already used");
-    verifyDeleteRedirection();
+    verifyDeleteAuthCookie();
   }
 
   @Test
@@ -191,7 +209,7 @@ public class InitFilterTest {
     underTest.doFilter(request, response, chain);
 
     verify(response).sendRedirect("/sonarqube/sessions/unauthorized?message=Email+john%40email.com+is+already+used");
-    verifyDeleteRedirection();
+    verifyDeleteAuthCookie();
   }
 
   @Test
@@ -204,7 +222,7 @@ public class InitFilterTest {
 
     verify(response).sendRedirect("/sessions/unauthorized");
     assertThat(logTester.logs(LoggerLevel.ERROR)).containsExactlyInAnyOrder("Fail to initialize authentication with provider 'failing'");
-    verifyDeleteRedirection();
+    verifyDeleteAuthCookie();
   }
 
   private void assertOAuth2InitCalled() {
@@ -223,7 +241,7 @@ public class InitFilterTest {
     assertThat(oAuth2IdentityProvider.isInitCalled()).isFalse();
   }
 
-  private void verifyDeleteRedirection() {
+  private void verifyDeleteAuthCookie() {
     verify(oAuthRedirection).delete(eq(request), eq(response));
   }
 

@@ -65,7 +65,7 @@ public class OAuth2CallbackFilterTest {
 
   private FakeOAuth2IdentityProvider oAuth2IdentityProvider = new WellbehaveFakeOAuth2IdentityProvider(OAUTH2_PROVIDER_KEY, true, LOGIN);
   private AuthenticationEvent authenticationEvent = mock(AuthenticationEvent.class);
-  private OAuth2Redirection oAuthRedirection = mock(OAuth2Redirection.class);
+  private Oauth2Parameters oAuthRedirection = mock(Oauth2Parameters.class);
 
   private ArgumentCaptor<AuthenticationException> authenticationExceptionCaptor = ArgumentCaptor.forClass(AuthenticationException.class);
 

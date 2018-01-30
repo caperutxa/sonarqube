@@ -45,15 +45,15 @@ public class InitFilter extends AuthenticationFilter {
   private final BaseContextFactory baseContextFactory;
   private final OAuth2ContextFactory oAuth2ContextFactory;
   private final AuthenticationEvent authenticationEvent;
-  private final OAuth2Redirection oAuthRedirection;
+  private final Oauth2Parameters oAuthAuthenticationParameters;
 
   public InitFilter(IdentityProviderRepository identityProviderRepository, BaseContextFactory baseContextFactory,
-    OAuth2ContextFactory oAuth2ContextFactory, Server server, AuthenticationEvent authenticationEvent, OAuth2Redirection oAuthRedirection) {
+    OAuth2ContextFactory oAuth2ContextFactory, Server server, AuthenticationEvent authenticationEvent, Oauth2Parameters oAuthAuthenticationParameters) {
     super(server, identityProviderRepository);
     this.baseContextFactory = baseContextFactory;
     this.oAuth2ContextFactory = oAuth2ContextFactory;
     this.authenticationEvent = authenticationEvent;
-    this.oAuthRedirection = oAuthRedirection;
+    this.oAuthAuthenticationParameters = oAuthAuthenticationParameters;
   }
 
   @Override
@@ -82,11 +82,11 @@ public class InitFilter extends AuthenticationFilter {
         handleError(response, format("Unsupported IdentityProvider class: %s", provider.getClass()));
       }
     } catch (AuthenticationException e) {
-      oAuthRedirection.delete(request, response);
+      oAuthAuthenticationParameters.delete(request, response);
       authenticationEvent.loginFailure(request, e);
       handleAuthenticationError(e, response, getContextPath());
     } catch (Exception e) {
-      oAuthRedirection.delete(request, response);
+      oAuthAuthenticationParameters.delete(request, response);
       handleError(e, response, format("Fail to initialize authentication with provider '%s'", provider.getKey()));
     }
   }
@@ -105,7 +105,7 @@ public class InitFilter extends AuthenticationFilter {
 
   private void handleOAuth2IdentityProvider(HttpServletRequest request, HttpServletResponse response, OAuth2IdentityProvider provider) {
     try {
-      oAuthRedirection.create(request, response);
+      oAuthAuthenticationParameters.init(request, response);
       provider.init(oAuth2ContextFactory.newContext(request, response, provider));
     } catch (UnauthorizedException e) {
       throw AuthenticationException.newBuilder()

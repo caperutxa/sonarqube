@@ -29,21 +29,20 @@ import org.mockito.ArgumentCaptor;
 import org.sonar.api.platform.Server;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class OAuth2RedirectionTest {
+public class Oauth2ParametersImplTest {
 
+  private static final String AUTHENTICATION_COOKIE_NAME = "AUTHENTICATION_COOKIE";
   private ArgumentCaptor<Cookie> cookieArgumentCaptor = ArgumentCaptor.forClass(Cookie.class);
 
   private Server server = mock(Server.class);
   private HttpServletResponse response = mock(HttpServletResponse.class);
   private HttpServletRequest request = mock(HttpServletRequest.class);
 
-  private OAuth2Redirection underTest = new OAuth2Redirection();
+  private Oauth2Parameters underTest = new OAuth2ParametersImpl();
 
   @Before
   public void setUp() throws Exception {
@@ -51,15 +50,15 @@ public class OAuth2RedirectionTest {
   }
 
   @Test
-  public void create_cookie() {
+  public void init_create_cookie_containing_parameters_from_request() {
     when(request.getParameter("return_to")).thenReturn("/settings");
 
-    underTest.create(request, response);
+    underTest.init(request, response);
 
     verify(response).addCookie(cookieArgumentCaptor.capture());
     Cookie cookie = cookieArgumentCaptor.getValue();
-    assertThat(cookie.getName()).isEqualTo("REDIRECT_TO");
-    assertThat(cookie.getValue()).isEqualTo("/settings");
+    assertThat(cookie.getName()).isEqualTo(AUTHENTICATION_COOKIE_NAME);
+    assertThat(cookie.getValue()).isNotEmpty();
     assertThat(cookie.getPath()).isEqualTo("/");
     assertThat(cookie.isHttpOnly()).isTrue();
     assertThat(cookie.getMaxAge()).isEqualTo(-1);
@@ -67,65 +66,42 @@ public class OAuth2RedirectionTest {
   }
 
   @Test
-  public void does_not_create_cookie_when_return_to_parameter_is_empty() {
-    when(request.getParameter("return_to")).thenReturn("");
+  public void get_return_to_parameter() {
+    when(request.getCookies()).thenReturn(new Cookie[]{new Cookie(AUTHENTICATION_COOKIE_NAME, "{\"return_to\":\"/settings\"}")});
 
-    underTest.create(request, response);
+    Optional<String> redirection = underTest.getReturnTo(request);
 
-    verify(response, never()).addCookie(any());
+    assertThat(redirection).isNotEmpty();
+    assertThat(redirection.get()).isEqualTo("/settings");
   }
 
   @Test
-  public void does_not_create_cookie_when_return_to_parameter_is_null() {
-    when(request.getParameter("return_to")).thenReturn(null);
-
-    underTest.create(request, response);
-
-    verify(response, never()).addCookie(any());
-  }
-
-  @Test
-  public void get_and_delete() {
-    when(request.getCookies()).thenReturn(new Cookie[]{new Cookie("REDIRECT_TO", "/settings")});
-
-    Optional<String> redirection = underTest.getAndDelete(request, response);
-
-    assertThat(redirection).isEqualTo(Optional.of("/settings"));
-    verify(response).addCookie(cookieArgumentCaptor.capture());
-    Cookie updatedCookie = cookieArgumentCaptor.getValue();
-    assertThat(updatedCookie.getName()).isEqualTo("REDIRECT_TO");
-    assertThat(updatedCookie.getValue()).isNull();
-    assertThat(updatedCookie.getPath()).isEqualTo("/");
-    assertThat(updatedCookie.getMaxAge()).isEqualTo(0);
-  }
-
-  @Test
-  public void get_and_delete_returns_nothing_when_no_cookie() {
+  public void get_return_to_is_empty_when_no_cookie() {
     when(request.getCookies()).thenReturn(new Cookie[]{});
 
-    Optional<String> redirection = underTest.getAndDelete(request, response);
+    Optional<String> redirection = underTest.getReturnTo(request);
 
     assertThat(redirection).isEmpty();
   }
 
   @Test
-  public void get_and_delete_returns_nothing_redirect_value_is_null() {
-    when(request.getCookies()).thenReturn(new Cookie[]{new Cookie("REDIRECT_TO", null)});
+  public void get_return_to_is_empty_when_no_value() {
+    when(request.getCookies()).thenReturn(new Cookie[]{new Cookie(AUTHENTICATION_COOKIE_NAME, "{}")});
 
-    Optional<String> redirection = underTest.getAndDelete(request, response);
+    Optional<String> redirection = underTest.getReturnTo(request);
 
     assertThat(redirection).isEmpty();
   }
 
   @Test
   public void delete() {
-    when(request.getCookies()).thenReturn(new Cookie[]{new Cookie("REDIRECT_TO", "/settings")});
+    when(request.getCookies()).thenReturn(new Cookie[]{new Cookie(AUTHENTICATION_COOKIE_NAME, "{\"return_to\":\"/settings\"}")});
 
     underTest.delete(request, response);
 
     verify(response).addCookie(cookieArgumentCaptor.capture());
     Cookie updatedCookie = cookieArgumentCaptor.getValue();
-    assertThat(updatedCookie.getName()).isEqualTo("REDIRECT_TO");
+    assertThat(updatedCookie.getName()).isEqualTo(AUTHENTICATION_COOKIE_NAME);
     assertThat(updatedCookie.getValue()).isNull();
     assertThat(updatedCookie.getPath()).isEqualTo("/");
     assertThat(updatedCookie.getMaxAge()).isEqualTo(0);

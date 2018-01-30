@@ -74,14 +74,14 @@ public class OAuth2ContextFactoryTest {
   private OAuthCsrfVerifier csrfVerifier = mock(OAuthCsrfVerifier.class);
   private JwtHttpHandler jwtHttpHandler = mock(JwtHttpHandler.class);
   private TestUserSessionFactory userSessionFactory = TestUserSessionFactory.standalone();
-  private OAuth2Redirection oAuthRedirection = mock(OAuth2Redirection.class);
+  private Oauth2Parameters oAuthParameters = mock(Oauth2Parameters.class);
   private HttpServletRequest request = mock(HttpServletRequest.class);
   private HttpServletResponse response = mock(HttpServletResponse.class);
   private HttpSession session = mock(HttpSession.class);
   private OAuth2IdentityProvider identityProvider = mock(OAuth2IdentityProvider.class);
 
   private OAuth2ContextFactory underTest = new OAuth2ContextFactory(threadLocalUserSession, userIdentityAuthenticator, server, csrfVerifier, jwtHttpHandler, userSessionFactory,
-    oAuthRedirection);
+    oAuthParameters);
 
   @Before
   public void setUp() throws Exception {
@@ -148,7 +148,7 @@ public class OAuth2ContextFactoryTest {
   @Test
   public void redirect_to_home() throws Exception {
     when(server.getContextPath()).thenReturn("");
-    when(oAuthRedirection.getAndDelete(request, response)).thenReturn(Optional.empty());
+    when(oAuthParameters.getReturnTo(request)).thenReturn(Optional.empty());
     OAuth2IdentityProvider.CallbackContext callback = newCallbackContext();
 
     callback.redirectToRequestedPage();
@@ -159,7 +159,7 @@ public class OAuth2ContextFactoryTest {
   @Test
   public void redirect_to_home_with_context() throws Exception {
     when(server.getContextPath()).thenReturn("/sonarqube");
-    when(oAuthRedirection.getAndDelete(request, response)).thenReturn(Optional.empty());
+    when(oAuthParameters.getReturnTo(request)).thenReturn(Optional.empty());
     OAuth2IdentityProvider.CallbackContext callback = newCallbackContext();
 
     callback.redirectToRequestedPage();
@@ -169,7 +169,7 @@ public class OAuth2ContextFactoryTest {
 
   @Test
   public void redirect_to_requested_page() throws Exception {
-    when(oAuthRedirection.getAndDelete(request, response)).thenReturn(Optional.of("/settings"));
+    when(oAuthParameters.getReturnTo(request)).thenReturn(Optional.of("/settings"));
     when(server.getContextPath()).thenReturn("");
     OAuth2IdentityProvider.CallbackContext callback = newCallbackContext();
 
@@ -179,8 +179,8 @@ public class OAuth2ContextFactoryTest {
   }
 
   @Test
-  public void redirect_to_requested_page_doesnt_need_context() throws Exception {
-    when(oAuthRedirection.getAndDelete(request, response)).thenReturn(Optional.of("/sonarqube/settings"));
+  public void redirect_to_requested_page_does_not_need_context() throws Exception {
+    when(oAuthParameters.getReturnTo(request)).thenReturn(Optional.of("/sonarqube/settings"));
     when(server.getContextPath()).thenReturn("/other");
     OAuth2IdentityProvider.CallbackContext callback = newCallbackContext();
 
@@ -196,6 +196,17 @@ public class OAuth2ContextFactoryTest {
     callback.verifyCsrfState();
 
     verify(csrfVerifier).verifyState(request, response, identityProvider);
+  }
+
+  @Test
+  public void delete_oauth2_parameters_during_redirection() {
+    when(oAuthParameters.getReturnTo(request)).thenReturn(Optional.of("/settings"));
+    when(server.getContextPath()).thenReturn("");
+    OAuth2IdentityProvider.CallbackContext callback = newCallbackContext();
+
+    callback.redirectToRequestedPage();
+
+    verify(oAuthParameters).delete(eq(request), eq(response));
   }
 
   private OAuth2IdentityProvider.InitContext newInitContext() {

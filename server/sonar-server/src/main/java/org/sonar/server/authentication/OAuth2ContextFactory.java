@@ -44,17 +44,17 @@ public class OAuth2ContextFactory {
   private final OAuthCsrfVerifier csrfVerifier;
   private final JwtHttpHandler jwtHttpHandler;
   private final UserSessionFactory userSessionFactory;
-  private final OAuth2Redirection oAuthRedirection;
+  private final Oauth2Parameters oAuthParameters;
 
   public OAuth2ContextFactory(ThreadLocalUserSession threadLocalUserSession, UserIdentityAuthenticator userIdentityAuthenticator, Server server,
-    OAuthCsrfVerifier csrfVerifier, JwtHttpHandler jwtHttpHandler, UserSessionFactory userSessionFactory, OAuth2Redirection oAuthRedirection) {
+    OAuthCsrfVerifier csrfVerifier, JwtHttpHandler jwtHttpHandler, UserSessionFactory userSessionFactory, Oauth2Parameters oAuthParameters) {
     this.threadLocalUserSession = threadLocalUserSession;
     this.userIdentityAuthenticator = userIdentityAuthenticator;
     this.server = server;
     this.csrfVerifier = csrfVerifier;
     this.jwtHttpHandler = jwtHttpHandler;
     this.userSessionFactory = userSessionFactory;
-    this.oAuthRedirection = oAuthRedirection;
+    this.oAuthParameters = oAuthParameters;
   }
 
   public OAuth2IdentityProvider.InitContext newContext(HttpServletRequest request, HttpServletResponse response, OAuth2IdentityProvider identityProvider) {
@@ -114,10 +114,11 @@ public class OAuth2ContextFactory {
     @Override
     public void redirectToRequestedPage() {
       try {
-        Optional<String> redirectTo = oAuthRedirection.getAndDelete(request, response);
+        Optional<String> redirectTo = oAuthParameters.getReturnTo(request);
+        oAuthParameters.delete(request, response);
         getResponse().sendRedirect(redirectTo.orElse(server.getContextPath() + "/"));
       } catch (IOException e) {
-        throw new IllegalStateException("Fail to redirect to home", e);
+        throw new IllegalStateException("Fail to redirect to requested page", e);
       }
     }
 
