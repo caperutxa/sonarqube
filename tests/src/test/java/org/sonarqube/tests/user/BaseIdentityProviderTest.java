@@ -28,6 +28,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.sonarqube.qa.util.pageobjects.Navigation;
@@ -35,6 +36,7 @@ import org.sonarqube.tests.Category4Suite;
 import org.sonarqube.ws.client.GetRequest;
 import org.sonarqube.ws.client.WsClient;
 import org.sonarqube.ws.client.users.CreateRequest;
+import util.selenium.Selenese;
 import util.user.UserRule;
 import util.user.Users;
 
@@ -129,16 +131,30 @@ public class BaseIdentityProviderTest {
   }
 
   @Test
-  public void fail_when_email_already_exists() throws Exception {
+  @Ignore("To be activated when /sessions/email_already_exists web page will be implemented")
+  public void authenticate_new_user_when_email_already_exists() {
     enablePlugin();
     setUserCreatedByAuthPlugin(USER_LOGIN, USER_PROVIDER_ID, USER_NAME, USER_EMAIL);
     userRule.createUser("another", "Another", USER_EMAIL, "another");
 
-    runSelenese(ORCHESTRATOR, "/user/BaseIdentityProviderTest/fail_when_email_already_exists.html");
+    Selenese.runSelenese(ORCHESTRATOR, "/user/BaseIdentityProviderTest/authenticate_user_when_email_already_exists.html");
 
-    File logFile = ORCHESTRATOR.getServer().getWebLogs();
-    assertThat(FileUtils.readFileToString(logFile))
-      .doesNotContain("You can't sign up because email 'john@email.com' is already used by an existing user. This means that you probably already registered with another account");
+    userRule.verifyUserExists(USER_LOGIN, USER_NAME, USER_EMAIL);
+    userRule.verifyUserExists("another", "Another", null);
+  }
+
+  @Test
+  @Ignore("To be activated when /sessions/email_already_exists web page will be implemented")
+  public void authenticating_existing_user_using_existing_email() {
+    enablePlugin();
+    setUserCreatedByAuthPlugin(USER_LOGIN, USER_PROVIDER_ID, USER_NAME, USER_EMAIL);
+    userRule.createUser(USER_LOGIN, USER_NAME, null, USER_LOGIN);
+    userRule.createUser("another", "Another", USER_EMAIL, "another");
+
+    Selenese.runSelenese(ORCHESTRATOR, "/user/BaseIdentityProviderTest/authenticate_user_when_email_already_exists.html");
+
+    userRule.verifyUserExists(USER_LOGIN, USER_NAME, USER_EMAIL);
+    userRule.verifyUserExists("another", "Another", null);
   }
 
   @Test

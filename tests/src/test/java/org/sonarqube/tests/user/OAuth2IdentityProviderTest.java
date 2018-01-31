@@ -22,7 +22,6 @@ package org.sonarqube.tests.user;
 import com.codeborne.selenide.Condition;
 import com.sonar.orchestrator.Orchestrator;
 import java.io.File;
-import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -30,6 +29,7 @@ import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.ClassRule;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.sonarqube.qa.util.Tester;
@@ -37,7 +37,6 @@ import org.sonarqube.qa.util.pageobjects.Navigation;
 import org.sonarqube.tests.Category4Suite;
 import org.sonarqube.ws.Users.SearchWsResponse.User;
 import org.sonarqube.ws.client.GetRequest;
-import org.sonarqube.ws.client.WsResponse;
 import org.sonarqube.ws.client.permissions.AddUserRequest;
 import org.sonarqube.ws.client.users.CreateRequest;
 import util.selenium.Selenese;
@@ -98,14 +97,6 @@ public class OAuth2IdentityProviderTest {
     authenticateWithFakeAuthProvider();
 
     verifyUser(USER_LOGIN, USER_NAME, USER_EMAIL);
-  }
-
-  private void verifyUser(String login, String name, String email) {
-    User user = tester.users().getByLogin(login).orElseThrow(IllegalStateException::new);
-    assertThat(user.getLogin()).isEqualTo(login);
-    assertThat(user.getName()).isEqualTo(name);
-    assertThat(user.getEmail()).isEqualTo(email);
-    assertThat(user.getActive()).isTrue();
   }
 
   @Test
@@ -179,16 +170,30 @@ public class OAuth2IdentityProviderTest {
   }
 
   @Test
-  public void fail_when_email_already_exists() throws Exception {
+  @Ignore("To be activated when /sessions/email_already_exists web page will be implemented")
+  public void authenticate_new_user_when_email_already_exists() {
     simulateRedirectionToCallback();
     enablePlugin();
-    tester.users().generate(u -> u.setLogin("another").setName("Another").setEmail(USER_EMAIL).setPassword("another"));
+    tester.users().generate(u -> u.setLogin("another").setName("Another").setEmail(USER_EMAIL));
 
-    Selenese.runSelenese(orchestrator, "/user/OAuth2IdentityProviderTest/fail_when_email_already_exists.html");
+    Selenese.runSelenese(orchestrator, "/user/OAuth2IdentityProviderTest/authenticate_user_when_email_already_exists.html");
 
-    File logFile = orchestrator.getServer().getWebLogs();
-    assertThat(FileUtils.readFileToString(logFile))
-      .doesNotContain("You can't sign up because email 'john@email.com' is already used by an existing user. This means that you probably already registered with another account");
+    assertThat(tester.users().getByLogin(USER_LOGIN).get().getEmail()).isEqualTo(USER_EMAIL);
+    assertThat(tester.users().getByLogin("another").get().getEmail()).isNull();
+  }
+
+  @Test
+  @Ignore("To be activated when /sessions/email_already_exists web page will be implemented")
+  public void authenticating_existing_user_using_existing_email() {
+    simulateRedirectionToCallback();
+    enablePlugin();
+    tester.users().generate(u -> u.setLogin(USER_LOGIN).setName(USER_NAME).setEmail(null));
+    tester.users().generate(u -> u.setLogin("another").setName("Another").setEmail(USER_EMAIL));
+
+    Selenese.runSelenese(orchestrator, "/user/OAuth2IdentityProviderTest/authenticate_user_when_email_already_exists.html");
+
+    assertThat(tester.users().getByLogin(USER_LOGIN).get().getEmail()).isEqualTo(USER_EMAIL);
+    assertThat(tester.users().getByLogin("another").get().getEmail()).isNull();
   }
 
   @Test
@@ -216,11 +221,16 @@ public class OAuth2IdentityProviderTest {
     assertThat(user.getExternalProvider()).isEqualTo(FAKE_PROVIDER_KEY);
   }
 
+  private void verifyUser(String login, String name, String email) {
+    User user = tester.users().getByLogin(login).orElseThrow(IllegalStateException::new);
+    assertThat(user.getLogin()).isEqualTo(login);
+    assertThat(user.getName()).isEqualTo(name);
+    assertThat(user.getEmail()).isEqualTo(email);
+    assertThat(user.getActive()).isTrue();
+  }
 
   private void authenticateWithFakeAuthProvider() {
-    WsResponse response = tester.wsClient().wsConnector().call(
-      new GetRequest(("/sessions/init/" + FAKE_PROVIDER_KEY)));
-    assertThat(response.code()).isEqualTo(200);
+    tester.wsClient().wsConnector().call(new GetRequest(("/sessions/init/" + FAKE_PROVIDER_KEY))).failIfNotSuccessful();
   }
 
   private void simulateRedirectionToCallback() {
