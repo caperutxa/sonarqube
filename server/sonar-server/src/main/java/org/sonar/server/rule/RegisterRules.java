@@ -135,7 +135,7 @@ public class RegisterRules implements Startable {
       persistRepositories(dbSession, context.repositories());
       // FIXME lack of resiliency, active rules index is corrupted if rule index fails
       // to be updated. Only a single DB commit should be executed.
-      ruleIndexer.commitAndIndex(dbSession, recorder.getAll().map(RuleDefinitionDto::getId).collect(toSet()));
+      ruleIndexer.commitAndIndex(dbSession, recorder.getAllModified().map(RuleDefinitionDto::getId).collect(toSet()));
       activeRuleIndexer.commitAndIndex(dbSession, changes);
       recorder.getRenamed().forEach(entry -> LOG.info("Renamed rule detected: %s renamed to %s", entry.getValue(), entry.getKey().getKey()));
       profiler.stopDebug();
@@ -166,7 +166,7 @@ public class RegisterRules implements Startable {
       return removed.stream();
     }
 
-    private Stream<RuleDefinitionDto> getAll() {
+    private Stream<RuleDefinitionDto> getAllModified() {
       return Stream.of(
         created.stream(),
         updated.stream(),
