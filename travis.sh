@@ -176,7 +176,8 @@ BUILD)
     mvn org.jacoco:jacoco-maven-plugin:prepare-agent deploy \
         $MAVEN_ARGS \
         -Dsource.skip=true \
-        -Pdeploy-sonarsource
+        -Pdeploy-sonarsource \
+        -Dtest=org.sonar.server.qualityprofile.RegisterQualityProfilesNotificationTest -DfailIfNoTests=false
 
     mvn sonar:sonar \
         -Dsonar.host.url=$SONAR_HOST_URL \

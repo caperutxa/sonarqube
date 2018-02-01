@@ -229,6 +229,7 @@ public class RegisterQualityProfilesNotificationTest {
 
   @Test
   public void notification_does_not_include_inherited_profiled_when_rule_is_changed() {
+    System.out.println("============ in flacky test");
     String language = newLanguageKey();
     RuleDefinitionDto rule = db.rules().insert(r -> r.setLanguage(language).setSeverity(Severity.MINOR));
     OrganizationDto organization = db.organizations().insert();

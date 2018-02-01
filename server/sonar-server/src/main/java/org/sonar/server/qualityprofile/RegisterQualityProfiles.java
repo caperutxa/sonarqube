@@ -80,15 +80,18 @@ public class RegisterQualityProfiles {
       builtInQProfiles.forEach(builtIn -> {
         RulesProfileDto ruleProfile = persistedRuleProfiles.get(builtIn.getQProfileName());
         if (ruleProfile == null) {
+          System.out.println("============ no ruleProfile => call create");
           create(dbSession, batchDbSession, builtIn);
         } else {
           List<ActiveRuleChange> changes = update(dbSession, builtIn, ruleProfile);
-          changedProfiles.putAll(builtIn.getQProfileName(), changes.stream()
+          List<ActiveRuleChange> arChanges = changes.stream()
             .filter(change -> {
               String inheritance = change.getActiveRule().getInheritance();
               return inheritance == null || NONE.name().equals(inheritance);
             })
-            .collect(MoreCollectors.toList()));
+            .collect(MoreCollectors.toList());
+          System.out.println("============ changes=" + changes + " no arChanges=" + arChanges);
+          changedProfiles.putAll(builtIn.getQProfileName(), arChanges);
         }
       });
       if (!changedProfiles.isEmpty()) {
